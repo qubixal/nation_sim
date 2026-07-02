@@ -25,8 +25,8 @@ class Recorder:
         self,
         out_dir: Path | str,
         flush_every: int = 30,
-        keep_live_country_rows: int = 60_000,
-        keep_live_resource_rows: int = 600_000,
+        keep_live_country_rows: int = 2_000,
+        keep_live_resource_rows: int = 18_000,
         keep_live_trade_events: int = 500,
         write_csv: bool = True,
         write_parquet: bool = False,
@@ -162,6 +162,14 @@ class Recorder:
     @property
     def live_resource_rows(self) -> list[dict]:
         return list(self._live_resource)
+
+    def latest_country_rows(self, tick: int) -> list[dict]:
+        """only rows for the given tick — avoids scanning the full deque."""
+        return [r for r in self._live_country if r["tick"] == tick]
+
+    def latest_resource_rows(self, tick: int) -> list[dict]:
+        """only rows for the given tick — avoids scanning the full deque."""
+        return [r for r in self._live_resource if r["tick"] == tick]
 
     def record_crash(self, tick: int, name: str, msg: str) -> None:
         self._live_crashes.appendleft({"tick": tick, "name": name, "msg": msg})

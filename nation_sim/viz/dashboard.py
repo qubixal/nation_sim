@@ -94,15 +94,15 @@ _CHART_LAYOUT = dict(
 )
 
 _CELL = {
-    "padding": "5px 8px",
+    "padding": "4px 6px",
     "borderBottom": f"1px solid {_BORDER}",
-    "fontSize": "13px",
-    "lineHeight": "1.4",
+    "fontSize": "12px",
+    "lineHeight": "1.3",
 }
 
 _STOCK_BADGE = {
     "display": "inline-block",
-    "padding": "1px 6px",
+    "padding": "1px 5px",
     "borderRadius": "3px",
     "fontFamily": "'SF Mono', 'Cascadia Code', 'Consolas', monospace",
     "fontSize": "12px",
@@ -117,7 +117,8 @@ def _welfare_bar(w: float) -> html.Span:
     filled = max(0, min(10, round(w * 10)))
     color = _GREEN if w >= 0.75 else (_YELLOW if w >= 0.50 else _RED)
     bar = "█" * filled + "░" * (10 - filled)
-    return html.Span(bar, style={"color": color, "fontFamily": "monospace", "fontSize": "12px"})
+    return html.Span(bar, style={"color": color, "fontFamily": "monospace", "fontSize": "11px",
+                                  "whiteSpace": "nowrap", "letterSpacing": "-0.5px", "lineHeight": "1"})
 
 
 def _class_bar(poor: float, middle: float, rich: float) -> html.Span:
@@ -170,8 +171,8 @@ def _panel(**extra) -> dict:
     return base
 
 
-def _section_title(label: str, accent: str = _BLUE, sub: str | None = None) -> html.Div:
-    children = [
+def _section_title(label: str, accent: str = _BLUE) -> html.Div:
+    return html.Div([
         html.Span("", style={
             "display": "inline-block", "width": "7px", "height": "7px",
             "borderRadius": "50%", "background": accent, "marginRight": "8px",
@@ -181,13 +182,7 @@ def _section_title(label: str, accent: str = _BLUE, sub: str | None = None) -> h
             "color": _TEXT, "fontSize": "12px", "fontWeight": "800",
             "letterSpacing": "1.2px", "textTransform": "uppercase",
         }),
-    ]
-    if sub:
-        children.append(html.Span(sub, style={
-            "color": _MUTED, "fontFamily": "monospace", "fontSize": "12px",
-            "marginLeft": "10px",
-        }))
-    return html.Div(children, style={
+    ], style={
         "display": "flex", "alignItems": "center", "minHeight": "20px",
         "marginBottom": "6px",
     })
@@ -204,8 +199,8 @@ def _delta_badge(value: float, suffix: str = "") -> html.Span:
 
 # ── header ticker strip ─────────────────────────────────────────────────────
 
-def _header_ticker(cdf: pd.DataFrame, now: str) -> html.Div:
-    if cdf.empty:
+def _header_ticker(snap: pd.DataFrame, now: str, n_countries: int) -> html.Div:
+    if snap.empty:
         return html.Div(
             style={"display": "flex", "justifyContent": "space-between",
                    "alignItems": "center", "padding": "0 6px"},
@@ -217,20 +212,18 @@ def _header_ticker(cdf: pd.DataFrame, now: str) -> html.Div:
             ],
         )
 
-    tick = int(cdf["tick"].max())
-    n_countries = cdf["country"].nunique()
-    snap = cdf[cdf["tick"] == tick]
+    tick = int(snap["tick"].iloc[0])
     avg_welfare = float(snap["welfare"].mean())
     total_pop = float(snap["population"].sum())
     avg_stock = float(snap["performance"].mean())
 
     def _stat(label: str, value: str, color: str = _TEXT) -> html.Span:
         return html.Span([
-            html.Span(f"{label} ", style={"color": _MUTED, "fontSize": "11px",
-                                           "letterSpacing": "0.8px", "textTransform": "uppercase"}),
+            html.Span(f"{label} ", style={"color": _MUTED, "fontSize": "10px",
+                                           "letterSpacing": "0.6px", "textTransform": "uppercase"}),
             html.Span(value, style={"color": color, "fontFamily": "monospace",
-                                     "fontSize": "13px", "fontWeight": "600"}),
-        ], style={"marginRight": "24px"})
+                                     "fontSize": "12px", "fontWeight": "600"}),
+        ], style={"marginRight": "20px"})
 
     w_color = _GREEN if avg_welfare >= 0.7 else (_YELLOW if avg_welfare >= 0.5 else _RED)
     s_color = _GREEN if avg_stock >= 100 else (_YELLOW if avg_stock >= 80 else _RED)
@@ -273,8 +266,8 @@ def _price_board(rdf: pd.DataFrame) -> html.Table:
 
     _h = lambda l, a="left": html.Th(
         l, style={**_CELL, "color": _MUTED, "textAlign": a,
-                  "borderBottom": f"2px solid {_BORDER}", "fontSize": "11px",
-                  "letterSpacing": "0.8px", "textTransform": "uppercase"}
+                  "borderBottom": f"2px solid {_BORDER}", "fontSize": "10px",
+                  "letterSpacing": "0.6px", "textTransform": "uppercase"}
     )
     rows.append(html.Tr([_h("asset"), _h("price", "right"), _h("chg", "right")]))
 
@@ -324,45 +317,32 @@ _COUNTRY_SORT_COLUMNS: dict[str, tuple[str, bool]] = {
 }
 
 
-def _country_leaderboard(
-    cdf: pd.DataFrame,
+_LEADERBOARD_TABLE_STYLE = {
+    "width": "100%",
+    "borderCollapse": "collapse",
+    "tableLayout": "fixed",
+}
+
+
+def _country_leaderboard_header(
     sort_by: str = "stock",
     ascending: bool = False,
 ) -> html.Table:
-    """Country leaderboard with clickable column headers for sorting."""
-    rows: list[html.Tr] = []
-    if cdf.empty:
-        return html.Table(style={"width": "100%", "borderCollapse": "collapse"})
-
-    col, default_ascending = _COUNTRY_SORT_COLUMNS.get(sort_by, _COUNTRY_SORT_COLUMNS["stock"])
-    latest_tick = cdf["tick"].max()
-    snap = cdf[cdf["tick"] == latest_tick].copy()
-    prev_ticks = sorted(t for t in cdf["tick"].unique() if t < latest_tick)
-    prev = (
-        cdf[cdf["tick"] == prev_ticks[-1]].drop_duplicates("country").set_index("country")
-        if prev_ticks else pd.DataFrame()
-    )
-    snap["stock_change"] = snap.apply(
-        lambda row: float(row.get("performance", 100.0) or 100.0)
-        - float(prev.loc[row["country"], "performance"] if row["country"] in prev.index else row.get("performance", 100.0)),
-        axis=1,
-    )
-    if col not in snap.columns:
-        col = "performance"
-    snap = snap.sort_values(col, ascending=ascending)
-
+    """Country leaderboard header row with clickable sort buttons."""
     _th_style = {
         **_CELL,
         "borderBottom": f"2px solid {_BORDER}",
-        "fontSize": "12px",
-        "letterSpacing": "0.8px",
+        "fontSize": "10px",
+        "letterSpacing": "0.6px",
         "textTransform": "uppercase",
         "cursor": "pointer",
         "userSelect": "none",
-        "padding": "8px 12px",
+        "padding": "3px 4px",
+        "overflow": "hidden",
+        "textOverflow": "ellipsis",
     }
 
-    def _th(label: str, key: str, align: str = "left") -> html.Th:
+    def _th(label: str, key: str, align: str = "left", width: str = "auto") -> html.Th:
         is_active = key == sort_by
         arrow = ""
         if is_active:
@@ -375,27 +355,59 @@ def _country_leaderboard(
                 style={
                     "all": "unset", "cursor": "pointer", "display": "block",
                     "color": _BLUE if is_active else _MUTED,
-                    "fontSize": "11px", "fontWeight": "800" if is_active else "600",
-                    "letterSpacing": "0.8px", "textTransform": "uppercase",
+                    "fontSize": "10px", "fontWeight": "800" if is_active else "600",
+                    "letterSpacing": "0.6px", "textTransform": "uppercase",
                     "padding": "0", "fontFamily": "inherit",
+                    "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap",
                 },
             ),
-            style={**_th_style, "textAlign": align, "color": _BLUE if is_active else _MUTED,
+            style={**_th_style, "textAlign": align, "width": width,
+                   "color": _BLUE if is_active else _MUTED,
                    "background": "rgba(90,167,255,0.06)" if is_active else "transparent"},
         )
 
-    rows.append(html.Tr([
-        _th("#",        "stock",   "center"),
-        _th("country",  "country"),
-        _th("stock",    "stock",   "right"),
-        _th("chg",      "change",  "right"),
-        _th("welfare",  "welfare"),
-        html.Th("class", style={**_th_style, "cursor": "default"}),
-        _th("gdp",      "gdp",     "right"),
-        _th("pop M",    "pop",     "right"),
-        _th("reserves", "reserves","right"),
-        _th("debt",     "debt",    "right"),
-    ]))
+    return html.Table(
+        html.Thead(html.Tr([
+            _th("#",        "stock",   "center", "36px"),
+            _th("country",  "country",          "auto"),
+            _th("stock",    "stock",   "right", "60px"),
+            _th("chg",      "change",  "right", "50px"),
+            _th("welfare",  "welfare",          "64px"),
+            html.Th("class", style={**_th_style, "cursor": "default", "width": "64px"}),
+            _th("gdp",      "gdp",     "right", "52px"),
+            _th("pop",      "pop",     "right", "48px"),
+            _th("reserves", "reserves","right", "60px"),
+            _th("debt",     "debt",    "right", "52px"),
+        ])),
+        style={**_LEADERBOARD_TABLE_STYLE, "minWidth": "0"},
+    )
+
+
+def _country_leaderboard_body(
+    snap: pd.DataFrame,
+    prev: pd.DataFrame,
+    sort_by: str = "stock",
+    ascending: bool = False,
+) -> html.Table:
+    """Country leaderboard data rows (no header)."""
+    rows: list[html.Tr] = []
+    if snap.empty:
+        return html.Table(style={**_LEADERBOARD_TABLE_STYLE, "minWidth": "0"})
+
+    col, default_ascending = _COUNTRY_SORT_COLUMNS.get(sort_by, _COUNTRY_SORT_COLUMNS["stock"])
+
+    # vectorized stock_change — no row-by-row loop
+    if not prev.empty:
+        prev_perf = prev.set_index("country")["performance"]
+        snap = snap.copy()
+        snap["stock_change"] = snap["performance"] - snap["country"].map(prev_perf).fillna(0.0)
+    else:
+        snap = snap.copy()
+        snap["stock_change"] = 0.0
+
+    if col not in snap.columns:
+        col = "performance"
+    snap = snap.sort_values(col, ascending=ascending)
 
     for rank, (_, row) in enumerate(snap.iterrows(), 1):
         w = float(row["welfare"])
@@ -408,45 +420,46 @@ def _country_leaderboard(
                 html.Span(str(rank), style={**_STOCK_BADGE, "background": "rgba(77,163,255,0.10)",
                                              "color": _BLUE}) if rank <= 3
                 else html.Span(str(rank), style={"color": _MUTED, "fontFamily": "monospace",
-                                                   "fontSize": "13px"}),
-                style={**_CELL, "textAlign": "center", "width": "44px"},
+                                                   "fontSize": "11px"}),
+                style={**_CELL, "textAlign": "center", "width": "36px"},
             ),
             html.Td(
                 row["country"],
                 style={**_CELL, "color": _BLUE, "fontWeight": "700",
-                       "fontFamily": "monospace", "letterSpacing": "0.5px"},
+                       "fontFamily": "monospace", "letterSpacing": "0.5px",
+                       "overflow": "hidden", "textOverflow": "ellipsis", "whiteSpace": "nowrap"},
             ),
-            html.Td(_stock_badge_html(stock), style={**_CELL, "textAlign": "right"}),
-            html.Td(_delta_badge(change), style={**_CELL, "textAlign": "right"}),
-            html.Td(_welfare_bar(w), style={**_CELL, "width": "100px"}),
+            html.Td(_stock_badge_html(stock), style={**_CELL, "textAlign": "right", "width": "60px"}),
+            html.Td(_delta_badge(change), style={**_CELL, "textAlign": "right", "width": "50px"}),
+            html.Td(_welfare_bar(w), style={**_CELL, "width": "64px"}),
             html.Td(
                 _class_bar(
                     float(row.get("frac_poor", 0.0) or 0.0),
                     float(row.get("frac_middle", 0.0) or 0.0),
                     float(row.get("frac_rich", 0.0) or 0.0),
                 ),
-                style={**_CELL, "width": "70px", "whiteSpace": "nowrap"},
+                style={**_CELL, "width": "64px", "whiteSpace": "nowrap"},
             ),
             html.Td(
                 f"{row.get('gdp', 0.0):.0f}",
-                style={**_CELL, "color": _TEXT, "textAlign": "right", "fontFamily": "monospace"},
+                style={**_CELL, "color": _TEXT, "textAlign": "right", "fontFamily": "monospace", "width": "52px"},
             ),
             html.Td(
                 f"{row['population']:.1f}",
-                style={**_CELL, "color": _TEXT, "textAlign": "right", "fontFamily": "monospace"},
+                style={**_CELL, "color": _TEXT, "textAlign": "right", "fontFamily": "monospace", "width": "48px"},
             ),
             html.Td(
                 f"{row['reserves']:.0f}",
-                style={**_CELL, "color": _TEXT, "textAlign": "right", "fontFamily": "monospace"},
+                style={**_CELL, "color": _TEXT, "textAlign": "right", "fontFamily": "monospace", "width": "60px"},
             ),
             html.Td(
                 f"{debt_val:.0f}" if debt_val > 0 else "—",
                 style={**_CELL, "color": _RED if debt_val > 0 else _MUTED,
-                       "textAlign": "right", "fontFamily": "monospace"},
+                       "textAlign": "right", "fontFamily": "monospace", "width": "52px"},
             ),
         ]))
 
-    return html.Table(rows, style={"width": "100%", "borderCollapse": "collapse", "minWidth": "880px"})
+    return html.Table(rows, style={**_LEADERBOARD_TABLE_STYLE, "minWidth": "0"})
 
 
 
@@ -463,10 +476,10 @@ def _trade_feed(events: list[dict], crashes: list[dict] | None = None) -> list[h
                     html.Span("⚠ ", style={"color": _RED}),
                     html.Span(crash["name"], style={"color": _ORANGE, "fontWeight": "bold",
                                                      "fontFamily": "monospace"}),
-                    html.Span(f" — {crash['msg']}", style={"color": _TEXT, "fontSize": "13px"}),
+                    html.Span(f" — {crash['msg']}", style={"color": _TEXT, "fontSize": "12px"}),
                 ],
                 style={
-                    "fontSize": "13px", "padding": "5px 10px", "lineHeight": "1.5",
+                    "fontSize": "12px", "padding": "4px 8px", "lineHeight": "1.4",
                     "background": "rgba(224,72,72,0.08)",
                     "borderLeft": f"3px solid {_RED}",
                     "marginBottom": "3px", "borderRadius": "3px",
@@ -475,8 +488,8 @@ def _trade_feed(events: list[dict], crashes: list[dict] | None = None) -> list[h
         lines.append(html.Hr(style={"border": f"1px solid {_BORDER}", "margin": "4px 0"}))
 
     if not events:
-        lines.append(html.Div("No trades yet…", style={"color": _MUTED, "padding": "8px",
-                                                         "fontStyle": "italic", "fontSize": "13px"}))
+        lines.append(html.Div("No trades yet…", style={"color": _MUTED, "padding": "6px",
+                                                         "fontStyle": "italic", "fontSize": "12px"}))
         return lines
 
     r_color_map = {name: _RESOURCE_COLORS[i % len(_RESOURCE_COLORS)] for i, name in enumerate(RESOURCES)}
@@ -511,8 +524,6 @@ def _stock_index_chart(df: pd.DataFrame) -> go.Figure:
                 line=dict(width=1.8, color=_COUNTRY_COLORS[i % len(_COUNTRY_COLORS)]),
             ))
     fig.update_layout(
-        title=dict(text="STOCK INDEX — National Performance",
-                   font=dict(color=_TEXT, size=15)),
         xaxis_title="tick",
         yaxis_title="index (start=100)",
         **_CHART_LAYOUT,
@@ -533,7 +544,6 @@ def _price_time_series(rdf: pd.DataFrame) -> go.Figure:
                 line=dict(color=_RESOURCE_COLORS[r_idx % len(_RESOURCE_COLORS)], width=1.5),
             ))
     fig.update_layout(
-        title=dict(text="RESOURCE PRICES", font=dict(color=_TEXT, size=15)),
         xaxis_title="tick",
         yaxis_title="price (ref)",
         height=260,
@@ -542,32 +552,46 @@ def _price_time_series(rdf: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def _sparkline(df: pd.DataFrame, col: str, title: str, height: int = 110) -> go.Figure:
-    """Sparkline with distinct color per country."""
-    fig = go.Figure()
-    if not df.empty:
-        countries = sorted(df["country"].unique())
+def _sparklines(cdf: pd.DataFrame, cols: list[str], height: int = 110) -> list[go.Figure]:
+    """build multiple sparklines from a single groupby pass."""
+    figures = []
+    if cdf.empty:
+        for _ in cols:
+            figures.append(go.Figure().update_layout(
+                height=height, margin=dict(l=6, r=6, t=6, b=6),
+                paper_bgcolor=_PANEL, plot_bgcolor=_BG,
+                font=dict(color=_TEXT, size=10), legend=dict(visible=False),
+                uirevision="persist",
+            ))
+        return figures
+
+    countries = sorted(cdf["country"].unique())
+    # single groupby + sort — reuse for all columns
+    grouped = {name: grp.sort_values("tick") for name, grp in cdf.groupby("country")}
+
+    for col in cols:
+        fig = go.Figure()
         for i, name in enumerate(countries):
-            grp = df[df["country"] == name].sort_values("tick")
+            grp = grouped[name]
             color = _COUNTRY_COLORS[i % len(_COUNTRY_COLORS)]
             fig.add_trace(go.Scatter(
                 x=grp["tick"], y=grp[col],
                 mode="lines", name=name,
                 line=dict(width=1.5, color=color),
             ))
-    fig.update_layout(
-        title=dict(text=title, font=dict(color=_TEXT, size=13)),
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        height=height,
-        margin=dict(l=6, r=6, t=26, b=6),
-        paper_bgcolor=_PANEL,
-        plot_bgcolor=_BG,
-        font=dict(color=_TEXT, size=11),
-        legend=dict(visible=False),
-        uirevision="persist",
-    )
-    return fig
+        fig.update_layout(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            height=height,
+            margin=dict(l=6, r=6, t=6, b=6),
+            paper_bgcolor=_PANEL,
+            plot_bgcolor=_BG,
+            font=dict(color=_TEXT, size=10),
+            legend=dict(visible=False),
+            uirevision="persist",
+        )
+        figures.append(fig)
+    return figures
 
 
 def _trade_volume_bar(events: list[dict]) -> go.Figure:
@@ -585,7 +609,6 @@ def _trade_volume_bar(events: list[dict]) -> go.Figure:
             marker_color=colors, showlegend=False,
         ))
     fig.update_layout(
-        title=dict(text="TRADE VOLUME", font=dict(color=_TEXT, size=15)),
         xaxis_title="resource",
         yaxis_title="ref value",
         height=240,
@@ -623,7 +646,6 @@ def _geography_map(
     fig = go.Figure()
     if cdf.empty or "pos_x" not in cdf.columns:
         fig.update_layout(
-            title=dict(text="GEOGRAPHY", font=dict(color=_TEXT, size=15)),
             height=300,
             **_CHART_LAYOUT,
         )
@@ -678,7 +700,7 @@ def _geography_map(
 
     perf = snap.get("performance", pd.Series([100.0] * len(snap), index=snap.index))
     perf_norm = (perf / max(perf.max(), 1e-6)).clip(0.05, 1.0)
-    sizes = 10 + 24 * perf_norm
+    sizes = 8 + 20 * perf_norm
 
     fig.add_trace(go.Scatter(
         x=snap["pos_x"], y=snap["pos_y"],
@@ -689,14 +711,13 @@ def _geography_map(
             cmin=0.0, cmax=1.0,
             line=dict(width=1.5, color=_BG), showscale=False,
         ),
-        textfont=dict(color=_TEXT, size=12, family="monospace"),
+        textfont=dict(color=_TEXT, size=11, family="monospace"),
         hovertemplate="<b>%{text}</b><br>welfare=%{marker.color:.2f}<br>stock=%{customdata:.1f}<extra></extra>",
         customdata=perf, showlegend=False,
     ))
 
     layout = {**_CHART_LAYOUT, "annotations": annotations}
     fig.update_layout(
-        title=dict(text="GEOGRAPHY & TRADE FLOWS", font=dict(color=_TEXT, size=15)),
         height=300, **layout,
     )
     fig.update_xaxes(range=[-0.05, 1.05], showticklabels=False, title=None)
@@ -760,23 +781,24 @@ def make_app(recorder: Recorder, update_interval_ms: int = 500) -> Dash:
                 style={
                     "display": "grid",
                     "gridTemplateColumns": "minmax(420px, 1.35fr) minmax(440px, 1fr)",
-                    "gridTemplateRows": "300px",
+                    "gridTemplateRows": "380px",
                     "gap": "8px", "marginBottom": "8px",
                 },
                 children=[
                     html.Div(
                         style={**_panel(), "display": "flex", "flexDirection": "column"},
                         children=[
-                            _section_title("Market Index", _BLUE, "National performance"),
+                            _section_title("STOCK INDEX"),
                             html.Div(style={"flex": "1", "minHeight": "0"},
                                      children=[dcc.Graph(id="performance", config={"displayModeBar": False},
                                                          style={"height": "100%"})]),
                         ],
                     ),
                     html.Div(
-                        style={**_panel(), "display": "flex", "flexDirection": "column"},
+                        style={**_panel(), "display": "flex", "flexDirection": "column", "overflow": "hidden"},
                         children=[
-                            _section_title("Country Progress", _CYAN, "Click column to sort"),
+                            _section_title("COUNTRIES"),
+                            html.Div(id="country-header", style={"overflow": "hidden"}),
                             html.Div(id="country-table", style={"flex": "1", "minHeight": "0", "overflow": "auto"}),
                         ],
                     ),
@@ -795,7 +817,7 @@ def make_app(recorder: Recorder, update_interval_ms: int = 500) -> Dash:
                     html.Div(
                         style={**_panel(), "display": "flex", "flexDirection": "column"},
                         children=[
-                            _section_title("Resource Curves", _ORANGE),
+                            _section_title("RESOURCE PRICES"),
                             html.Div(style={"flex": "1", "minHeight": "0"},
                                      children=[dcc.Graph(id="prices", config={"displayModeBar": False},
                                                          style={"height": "100%"})]),
@@ -804,7 +826,7 @@ def make_app(recorder: Recorder, update_interval_ms: int = 500) -> Dash:
                     html.Div(
                         style={**_panel(), "display": "flex", "flexDirection": "column"},
                         children=[
-                            _section_title("Price Board", _YELLOW, "Reference market"),
+                            _section_title("PRICE BOARD"),
                             html.Div(style={"flex": "1", "minHeight": "0", "overflowY": "auto"},
                                      children=[html.Div(id="price-ticker")]),
                         ],
@@ -813,11 +835,7 @@ def make_app(recorder: Recorder, update_interval_ms: int = 500) -> Dash:
                         style={**_panel(**{"overflow": "visible"}), "display": "flex", "flexDirection": "column",
                                "maxHeight": "280px"},
                         children=[
-                            html.Div(
-                                _section_title("Trade Tape", _GREEN),
-                                style={"position": "sticky", "top": "0", "background": _PANEL,
-                                       "zIndex": 2, "flexShrink": "0"},
-                            ),
+                            _section_title("TRADE TAPE"),
                             html.Div(id="trade-feed", style={"flex": "1", "overflowY": "auto",
                                                               "minHeight": "0"}),
                         ],
@@ -835,11 +853,17 @@ def make_app(recorder: Recorder, update_interval_ms: int = 500) -> Dash:
                 children=[
                     html.Div(
                         style={**_panel()},
-                        children=[_section_title("Volume By Asset", _PURPLE), dcc.Graph(id="trade-volume", config={"displayModeBar": False})],
+                        children=[
+                            _section_title("TRADE VOLUME"),
+                            dcc.Graph(id="trade-volume", config={"displayModeBar": False}),
+                        ],
                     ),
                     html.Div(
                         style={**_panel()},
-                        children=[_section_title("Trade Geography", _PINK), dcc.Graph(id="geography", config={"displayModeBar": False})],
+                        children=[
+                            _section_title("GEOGRAPHY"),
+                            dcc.Graph(id="geography", config={"displayModeBar": False}),
+                        ],
                     ),
                 ],
             ),
@@ -848,9 +872,18 @@ def make_app(recorder: Recorder, update_interval_ms: int = 500) -> Dash:
             html.Div(
                 style={"display": "grid", "gridTemplateColumns": "repeat(3, minmax(240px, 1fr))", "gap": "8px"},
                 children=[
-                    html.Div(style={**_panel()}, children=[dcc.Graph(id="welfare-spark", config={"displayModeBar": False})]),
-                    html.Div(style={**_panel()}, children=[dcc.Graph(id="pop-spark", config={"displayModeBar": False})]),
-                    html.Div(style={**_panel()}, children=[dcc.Graph(id="reserves-spark", config={"displayModeBar": False})]),
+                    html.Div(style={**_panel()}, children=[
+                        _section_title("WELFARE"),
+                        dcc.Graph(id="welfare-spark", config={"displayModeBar": False}),
+                    ]),
+                    html.Div(style={**_panel()}, children=[
+                        _section_title("POPULATION"),
+                        dcc.Graph(id="pop-spark", config={"displayModeBar": False}),
+                    ]),
+                    html.Div(style={**_panel()}, children=[
+                        _section_title("RESERVES"),
+                        dcc.Graph(id="reserves-spark", config={"displayModeBar": False}),
+                    ]),
                 ],
             ),
         ],
@@ -883,6 +916,17 @@ def make_app(recorder: Recorder, update_interval_ms: int = 500) -> Dash:
         return {"key": clicked_key, "ascending": default_asc}
 
     @app.callback(
+        Output("country-header", "children"),
+        Input("sort-state", "data"),
+    )
+    def update_header(sort_state):
+        sort_state = sort_state or {"key": "stock", "ascending": False}
+        return _country_leaderboard_header(
+            sort_by=sort_state.get("key", "stock"),
+            ascending=bool(sort_state.get("ascending", False)),
+        )
+
+    @app.callback(
         [
             Output("header-ticker",  "children"),
             Output("country-table",  "children"),
@@ -909,15 +953,31 @@ def make_app(recorder: Recorder, update_interval_ms: int = 500) -> Dash:
         sort_by = sort_state.get("key", "stock")
         ascending = bool(sort_state.get("ascending", False))
 
+        # compute latest snapshot ONCE — reuse across all panels
+        n_countries = cdf["country"].nunique() if not cdf.empty else 0
+        if not cdf.empty:
+            latest_tick = int(cdf["tick"].max())
+            snap = cdf[cdf["tick"] == latest_tick]
+            # previous tick for stock_change diff
+            prev_ticks = cdf["tick"].unique()
+            prev_tick = int(prev_ticks[-2]) if len(prev_ticks) >= 2 else latest_tick
+            prev = cdf[cdf["tick"] == prev_tick].drop_duplicates("country")
+        else:
+            snap = pd.DataFrame()
+            prev = pd.DataFrame()
+
+        # sparklines — single groupby pass
+        spark_w, spark_p, spark_r = _sparklines(cdf, ["welfare", "population", "reserves"])
+
         return (
-            _header_ticker(cdf, now),
-            _country_leaderboard(cdf, sort_by=sort_by or "stock", ascending=ascending),
+            _header_ticker(snap, now, n_countries),
+            _country_leaderboard_body(snap, prev, sort_by=sort_by or "stock", ascending=ascending),
             _price_board(rdf),
             _stock_index_chart(cdf),
             _price_time_series(rdf),
-            _sparkline(cdf, "welfare",    "WELFARE"),
-            _sparkline(cdf, "population", "POPULATION"),
-            _sparkline(cdf, "reserves",   "RESERVES"),
+            spark_w,
+            spark_p,
+            spark_r,
             _trade_volume_bar(events),
             _geography_map(
                 cdf, events,
