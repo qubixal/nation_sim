@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+
+# virtual env
+.venv/
+
+# pytest
+.pytest_cache/
+
+# macos
+.DS_Store
+
+# sim output
+runs/
+
+# editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

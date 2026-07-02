@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nation_sim"
+version = "0.1.0"
+description = "Multi-nation economic simulator (Phase 1: core + scripted agents + Parquet logging)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyarrow>=15.0",
+    "dash>=2.17",
+    "plotly>=5.20",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+sim = "nation_sim.__main__:main"
+sim-compare = "nation_sim.scripts.compare_policies:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nation_sim*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
